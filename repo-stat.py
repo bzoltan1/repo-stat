@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import print_function
 
+from __future__ import print_function
 import os
 import git
 import argparse
@@ -10,16 +10,19 @@ import sys
 import datetime
 import re
 import subprocess
+from argparse import ArgumentParser
 from git import Repo
 from datetime import timedelta
 from os.path import isfile
+from shutil import which
 
 plot_template = """
 set title "Number of commits from the team to the repositories"
 set terminal png
 set output "NAME.png"
 set xtics nomirror rotate by -45
-set terminal png font "/usr/share/fonts/truetype/freefont/FreeSans.ttf" 10 size 1800,900
+set terminal png font "/usr/share/fonts/truetype/freefont/FreeSans.ttf" \
+10 size 1800,900
 set rmargin 5
 set linetype 1 lc rgb '#183693'
 set yrange [0:*]
@@ -33,7 +36,12 @@ f(x) = a + b*x
 set fit quiet
 set fit logfile '/dev/null'
 fit f(x) $dataset using 1:2 via a, b
-plot [0:X_MAX] $dataset title "Number of commits" with lines lw 5, f(x) with lines lw 5
+plot [0:X_MAX] $dataset using 1:2 title "Number of commits by the team" \
+with lines lw 5, f(x) with lines lw 5"""
+
+plot_all_template = """,\\
+               $dataset using 1:3 title "Number of commits by all \
+contributors" with lines lw 5
 """
 
 
@@ -60,7 +68,7 @@ def check_valid_input_json(value):
     try:
         with open(value, "rt") as input_json_file:
             json.load(input_json_file)
-    except:
+    except Exception:
         raise argparse.ArgumentTypeError('Not a valid json file: %s' % value)
     return value
 
@@ -75,23 +83,28 @@ def parse_args():
                   "github_username_3"]
     }
     '''
-    parser = argparse.ArgumentParser(prog='repo-stat.py',
-                                     description='Generates stats of git \
-                                                  repositories based on \
-                                                  json input.',
-                                     epilog=example_json,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-d', '--debug', default=False, action='store_true',
-                        dest='debug', help='debug mode')
-    parser.add_argument("-i", "--input-json", dest="json",
-                        type=check_valid_input_json, default=None,
-                        help="File with repos and team members in json format.")
-    parser.add_argument("-w", "--weeks", dest="weeks", type=int, default=None,
-                        help="Length of period in weeks")
+    p = ArgumentParser(prog='repo-stat.py',
+                       description='Generates stats of git' +
+                       'repositories based on' +
+                       'json input.',
+                       epilog=example_json,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('-d', '--debug', default=False, action='store_true',
+                   dest='debug', help='debug mode')
+    p.add_argument("-i", "--input-json", dest="json",
+                   type=check_valid_input_json, default=None,
+                   help="File with repos and team \
+                              members in json format.")
+    p.add_argument("-w", "--weeks", dest="weeks", type=int, default=None,
+                   help="Length of period in weeks")
+    p.add_argument("-a", "--all",
+                   dest="all", default=False, action='store_true',
+                   help="Show the graph of all contributions")
+
     if len(sys.argv[1:]) == 0:
-        parser.print_help()
-        parser.exit()
-    return parser
+        p.print_help()
+        p.exit()
+    return p
 
 
 def sorted_alphanumerically(l):
@@ -137,10 +150,19 @@ def update_repos(repos):
                     repo_data.update({'%s' % week: {'team': 1, 'all': 1}})
                 pass
         else:
-            print('Could not load repository at {}'.format(repo_path))
+            print('Could not load repository at {}'.format(repo_directory))
 
 
 if __name__ == "__main__":
+    if which("gnuplot") is None:
+        print("The gnuplot is not available.\n" +
+              "This tool is using gnuplot to create png images from the" +
+              "statistics about the local git repositories.\n" +
+              "Install it with `sudo zypper install gnuplot` command.")
+        sys.exit(0)
+    if which("git") is None:
+        print("The git is not available.")
+        sys.exit(0)
     parser = parse_args()
     args = parser.parse_args(sys.argv[1:])
     if args.debug:
@@ -149,7 +171,7 @@ if __name__ == "__main__":
         with open(args.json) as f:
             data = json.load(f)
         if args.debug:
-            print("input json " + json_file + ":")
+            print("input json " + args.json + ":")
             print(json.dumps(data, sort_keys=True, indent=4))
         try:
             repos = data['repos']
@@ -163,16 +185,20 @@ if __name__ == "__main__":
     repo_template = '{}'
     repo_data = json.loads(repo_template)
     update_repos(repos)
-    plot = plot_template
+    if args.all:
+        plot = plot_template + plot_all_template
+    else:
+        plot = plot_template
     data_index = 0
     data_table = ""
     ticsline = ""
     separator = ""
     newline = ""
     for week in sorted_alphanumerically(repo_data):
-        data_table += ("%s%s\t%s" % (newline,
-                                     data_index,
-                                     repo_data[week]['team']))
+        data_table += ("%s%s\t%s\t%s" % (newline,
+                       data_index,
+                       repo_data[week]['team'],
+                       repo_data[week]['all']))
         ticsline += ("%s\"%s\" %s" % (separator, week, data_index))
         data_index += 1
         separator = ","
