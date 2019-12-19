@@ -146,8 +146,11 @@ def update_repos(repos):
                     else:
                         repo_data[week]['all'] += 1
                 else:
-                    repo_data.update({'%s' % week: 1})
-                    repo_data.update({'%s' % week: {'team': 1, 'all': 1}})
+                    if commit.author.name in team:
+                        repo_data.update({'%s' % week: {'team': 1, 'all': 1}})
+                    else:
+                        repo_data.update({'%s' % week: {'team': 0, 'all': 1}})
+
                 pass
         else:
             print('Could not load repository at {}'.format(repo_directory))
