@@ -213,8 +213,10 @@ if __name__ == "__main__":
     plot = re.sub(r"NAME", "%s-%s-weeks" % (os.path.splitext(args.json)[0],
                                             args.weeks), plot)
     gnuplot(plot)
-    file = open("repo-stat.plot", "w")
+    file = open("%s-%s-weeks.plot" % (os.path.splitext(args.json)[0],
+                                      args.weeks), "w")
     file.write(plot)
     file.close()
-    with open("repo-stat.json", 'wt') as json_file:
+    with open("%s-%s-weeks.json" % (os.path.splitext(args.json)[0],
+                                    args.weeks), 'wt') as json_file:
         json.dump(repo_data, json_file, indent=4)
