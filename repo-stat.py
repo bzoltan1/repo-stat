@@ -78,9 +78,9 @@ def parse_args():
     {
         "repos": [ "user/repo",
                    "user_2/repo_2" ],
-        "team": [ "github_username_1",
-                  "github_username_2",
-                  "github_username_3"]
+        "team": [ "username_1",
+                  "username_2",
+                  "username_3"]
     }
     '''
     p = ArgumentParser(prog='repo-stat.py',
@@ -95,7 +95,7 @@ def parse_args():
                    type=check_valid_input_json, default=None,
                    help="File with repos and team \
                               members in json format.")
-    p.add_argument("-w", "--weeks", dest="weeks", type=int, default=None,
+    p.add_argument("-w", "--weeks", dest="weeks", type=int, default=5,
                    help="Length of period in weeks")
     p.add_argument("-a", "--all",
                    dest="all", default=False, action='store_true',
