@@ -36,11 +36,11 @@ f(x) = a + b*x
 set fit quiet
 set fit logfile '/dev/null'
 fit f(x) $dataset using 1:2 via a, b
-plot [0:X_MAX] $dataset using 1:2 title "Number of commits by the team" \
+plot [0:X_MAX] $dataset using 1:2 title "Number of UNIT by the team" \
 with lines lw 5, f(x) with lines lw 5"""
 
 plot_all_template = """,\\
-               $dataset using 1:3 title "Number of commits by all \
+               $dataset using 1:3 title "Number of UNIT by all \
 contributors" with lines lw 5
 """
 
@@ -73,6 +73,14 @@ def check_valid_input_json(value):
     return value
 
 
+def check_measure_type(value):
+    measure = ["commits", "size", "kudos"]
+    if value not in measure:
+        raise argparse.ArgumentTypeError("Can not measre by %s. Must be \
+                                         [commits|size|kudos]")
+    return value
+
+
 def parse_args():
     example_json = '''example input json:
     {
@@ -80,7 +88,8 @@ def parse_args():
                    "user_2/repo_2" ],
         "team": [ "username_1",
                   "username_2",
-                  "username_3"]
+                  "username_3"],
+        "kudos": ".*"
     }
     '''
     p = ArgumentParser(prog='repo-stat.py',
@@ -95,7 +104,13 @@ def parse_args():
                    type=check_valid_input_json, default=None,
                    help="File with repos and team \
                               members in json format.")
-    p.add_argument("-w", "--weeks", dest="weeks", type=int, default=5,
+    p.add_argument("-m", "--measure", dest="measure",
+                   type=check_measure_type, default="size",
+                   help="Create statistics bases on number of commits, \
+                         size of commits or new files matching the kudos \
+                         regexp [commits|size|kudos].")
+
+    p.add_argument("-w", "--weeks", dest="weeks", type=int, default=52,
                    help="Length of period in weeks")
     p.add_argument("-a", "--all",
                    dest="all", default=False, action='store_true',
@@ -117,40 +132,76 @@ def sorted_alphanumerically(l):
 def update_repos(repos):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     from_date = datetime.datetime.today() - timedelta(days=7*args.weeks)
-
     for r in repos:
         m = re.match(r"(.*)(\/+)(.*)", r)
         repo_directory = r
         if m:
             repo_directory = m.group(3)
         if not os.path.isdir(repo_directory):
-            print("Cloning %s" % r)
+            if args.debug:
+                print("Cloning %s" % r)
             g = git.Git(dir_path)
             g.clone("git://github.com/%s" % r)
         else:
-            print("Updating %s" % repo_directory)
+            if args.debug:
+                print("Updating %s" % repo_directory)
             g = git.cmd.Git("%s" % repo_directory)
             g.pull()
         repo = Repo(repo_directory)
         if not repo.bare:
             commits = list(repo.iter_commits('master'))
+
             for commit in commits:
-                d = datetime.datetime.fromtimestamp(commit.authored_date)
-                if d < from_date:
+                if commit.message.startswith("Merge pull request "):
                     continue
+                if args.measure in ["size", "kudos"]:
+                    increase = 0
+                    if args.measure == "size":
+                        for changed in commit.stats.files:
+                            increase += commit.stats.files[changed]['lines']
+                    else:
+                        if commit.parents:
+                            for change_diff in commit.diff(commit.parents[0]):
+                                if change_diff.b_blob is None:
+                                    m = re.match(r"%s" % kudos,
+                                                 change_diff.a_blob.path)
+                                    if m:
+                                        for changed in commit.stats.files:
+                                            m_stats = re.match(r"%s" % kudos,
+                                                               changed)
+                                            if m_stats:
+                                                increase += commit.stats.files[changed]['lines']
+                                        if args.debug:
+                                            print("new: %s - %s" % (increase,
+                                                                    change_diff.a_blob.path))
+                                            print("\t%s - %s - %s" % (datetime.datetime.fromtimestamp(commit.committed_date), commit.author.name, commit.message.partition('\n')[0]))
+                                        break
+                else:
+                    increase = 1
+                d = datetime.datetime.fromtimestamp(commit.committed_date)
+                if d < from_date:
+                    break
                 week = "%s - %s" % (d.year, d.isocalendar()[1])
                 if week in repo_data:
                     if commit.author.name in team:
-                        repo_data[week]['team'] += 1
-                        repo_data[week]['all'] += 1
+                        repo_data[week]['team'] += int(increase)
+                        repo_data[week]['all'] += int(increase)
+                        if args.debug:
+                            print("size: %s " % (increase))
+                            print("\t%s - %s - %s" % (datetime.datetime.fromtimestamp(commit.committed_date), commit.author.name, commit.message.partition('\n')[0]))
                     else:
-                        repo_data[week]['all'] += 1
+                        repo_data[week]['all'] += int(increase)
                 else:
                     if commit.author.name in team:
-                        repo_data.update({'%s' % week: {'team': 1, 'all': 1}})
-                    else:
-                        repo_data.update({'%s' % week: {'team': 0, 'all': 1}})
+                        repo_data.update({'%s' % week: {'team': increase,
+                                                        'all': increase}})
+                        if args.debug:
+                            print("size: %s " % (increase))
+                            print("\t%s - %s - %s" % (datetime.datetime.fromtimestamp(commit.committed_date), commit.author.name, commit.message.partition('\n')[0]))
 
+                    else:
+                        repo_data.update({'%s' % week: {'team': 0,
+                                                        'all': increase}})
                 pass
         else:
             print('Could not load repository at {}'.format(repo_directory))
@@ -179,6 +230,8 @@ if __name__ == "__main__":
         try:
             repos = data['repos']
             team = data['team']
+            if args.measure == "kudos":
+                kudos = data['kudos']
         except KeyError as e:
             print("\nMissing json key: " + str(e))
             exit(1)
@@ -212,6 +265,15 @@ if __name__ == "__main__":
     plot = re.sub(r"TICS", "set xtics (%s)" % ticsline, plot)
     plot = re.sub(r"NAME", "%s-%s-weeks" % (os.path.splitext(args.json)[0],
                                             args.weeks), plot)
+    if args.measure == "size":
+        plot = re.sub(r"UNIT", "lines in commits", plot)
+    if args.measure == "commits":
+        plot = re.sub(r"UNIT", "commits", plot)
+    if args.measure == "kudos":
+        plot = re.sub(r"UNIT",
+                      "lines in commits for \\\"%s\\\" files" % kudos,
+                      plot)
+    print(plot)
     gnuplot(plot)
     file = open("%s-%s-weeks.plot" % (os.path.splitext(args.json)[0],
                                       args.weeks), "w")
