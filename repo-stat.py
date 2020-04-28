@@ -26,7 +26,7 @@ set terminal png font "/usr/share/fonts/truetype/freefont/FreeSans.ttf" \
 set rmargin 5
 set linetype 1 lc rgb '#183693'
 set yrange [0:*]
-set ytics 5
+set ytics YTICS
 set grid
 TICS
 $dataset << EOD
@@ -122,10 +122,16 @@ def parse_args():
     return p
 
 
+def convert(text):
+    return int(text) if text.isdigit() else text
+
+
+def alphanum_key(key):
+    return [convert(c) for c in re.split('([0-9]+)', key)]
+
+
 def sorted_alphanumerically(l):
     """ Sort the given iterable in the way that humans expect."""
-    convert = lambda text: int(text) if text.isdigit() else text
-    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(l, key=alphanum_key)
 
 
@@ -250,7 +256,11 @@ if __name__ == "__main__":
     ticsline = ""
     separator = ""
     newline = ""
+    max_y = 0
     for week in sorted_alphanumerically(repo_data):
+        max_y = max(repo_data[week]['team'],
+                    repo_data[week]['all'] if args.all else 0,
+                    max_y)
         data_table += ("%s%s\t%s\t%s" % (newline,
                        data_index,
                        repo_data[week]['team'],
@@ -259,6 +269,10 @@ if __name__ == "__main__":
         data_index += 1
         separator = ","
         newline = "\n"
+
+    plot = re.sub(r"YTICS", "%s" % min((10, 50, 100, 500, 1000, 5000),
+                                       key=lambda x: abs(x-int(max_y/20))),
+                  plot)
     plot = re.sub(r"X_MAX", "%s" % data_index, plot)
     plot = re.sub(r"DATA", "%s" % data_table, plot)
     plot = re.sub(r"PNG", "%s" % "weekly.png", plot)
